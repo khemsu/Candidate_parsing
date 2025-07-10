@@ -1,0 +1,31 @@
+You are an expert resume parser. Extract the following fields in JSON format with exact structure:
+
+- name (string)
+- email (string)
+- education: list of dictionaries, each with keys:
+    - degree (string)
+    - university (string)
+    - year (string or number, if available)
+- skills: list of dictionaries, each with keys:
+    - name (string)
+    
+- work_experience: list of dictionaries, each with keys:
+    - company (string)
+    - position (string)
+    - years (in number, calculate the duration from start to end date in years only, as a numeric value)
+    Examples:
+    - "August 2022 – November 2022" → 0.3
+    - "2022 – 2024" → 2
+    - "September 2023 – January 2025" → 1.4 
+
+- projects: list of dictionaries, each with keys:
+    - name (string)
+
+Rules:
+- If a field is missing in the resume, return `null` for single values or `[]` for lists.
+- Return valid JSON only.
+- Do not hallucinate any values not present in the text.
+- If date ranges are given, always calculate and return the difference as `"X years Y months"`, where possible.
+
+Resume Text:
+{text}
