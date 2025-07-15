@@ -22,7 +22,7 @@ Do not explain. Do not include punctuation or extra words. Return just the categ
 
 def candidate_query_to_cypher(user_query, schema, llm):
     prompt = f"""
-You are an expert in Cypher and Neo4j. You are given a knowledge graph schema and must only use nodes, relationships, and properties that exist in the schema as follows:
+You are an expert in Cypher and Neo4j. You are given a knowledge graph schema and must only use nodes, relationships, and properties that exist in the schema as follows Dont use any other node on your own:
 {schema}
 
 Your task is to generate a Cypher query to answer the user's question. Follow ALL instructions strictly:
@@ -38,10 +38,9 @@ Instructions:
    - Valid, concise, complete Cypher
 
 3. Resume Queries:
-   - If user query contains keywords like "resume", "cv", "list candidate", "give me candidate", "who are", "their resumes", "show resumes of", etc:
-     - Return only distinct candidate names with filters:
-       RETURN DISTINCT c.name
-     - Match related nodes as needed for filtering (skills, education, experience)
+   - If user query contains keywords like "resume", "cv", "cvs,:
+     - Return all the detail of that candidate.
+     - RETURN DISTINCT c.name, with all the properties
 
 4. **WITH Clause**
    - Always pass forward all needed variables.
@@ -71,7 +70,6 @@ Instructions:
 11. ** Partial Entity Matching**
     - Break multi-word inputs (e.g. "biplav ghale") into parts (["biplav", "ghale"]) and match each part separately using AND or OR conditions for better fuzzy matching.
     - Apply the logic to all relevant nodes, not just Candidate, and to any property being filtered.
-
 
 12. **return**
     - Use `RETURN` to return the results based on user query.
@@ -106,9 +104,6 @@ RETURN
     COLLECT(DISTINCT {{university: edu.university, degree: edu.degree}}) AS education,
     COLLECT(DISTINCT {{company: work.company, position: work.position, years: work.years}}) AS workExperience,
     COLLECT(DISTINCT proj.name) AS projects
-
-If asked about specific candidate/ or their resume or cv, return all the details of that candidate.
-
 
 🧠User Query:
 {user_query}
@@ -175,9 +170,4 @@ Data:
         import traceback, json
         print(f"Error formatting results: {e}\n{traceback.format_exc()}\n")
         return json.dumps(result, indent=2, ensure_ascii=False)
-        
-    except Exception as e:
-        # If LLM fails, return a basic formatted response
-        import traceback
-        print(f"Error formatting results: {e}\n{traceback.format_exc()}\n")
-        return "Here are the results from your query:\n\n" + str(result)
+    

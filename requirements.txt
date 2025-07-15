@@ -88,3 +88,5 @@ uritemplate==4.2.0
 urllib3==2.5.0
 xxhash==3.5.0
 zstandard==0.23.0
+pymongo==4.8.0
+dnspython==2.7.0

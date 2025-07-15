@@ -7,11 +7,17 @@ from langchain.chains import ConversationChain
 from neo4j import GraphDatabase
 from langchain_google_genai import ChatGoogleGenerativeAI
 from utils.neo4j_ops import save_to_neo4j
+from pymongo import MongoClient
+import uuid
 
+
+#database connection
+client = MongoClient(os.getenv("MONGODB_URI"))
+db = client[os.getenv("MONGODB_DB_NAME")]
+collection = db["candidates"]
 
 # Local imports
 from utils.extract_cv_data import extract_text_from_pdf, extract_candidate_data
-
 
 from utils.llm_query_helpers import (
     detect_query_type,
@@ -24,7 +30,9 @@ from memory_cypher_chain import(
     memory,
     add_to_memory,
     is_followup_query,
-    handle_followup
+    handle_followup,
+    load_summary_from_mongodb,
+    save_summary_to_mongodb
 )
 
 # Load environment variables
@@ -41,6 +49,8 @@ def initialize_llm():
         temperature=0.1,
         api_key=SecretStr(google_api_key)
     )
+
+from memory_cypher_chain import memory, add_to_memory, is_followup_query, handle_followup
 
 def get_knowledge_graph_schema():
     """Return the schema of the Neo4j knowledge graph."""
@@ -62,12 +72,18 @@ def handle_basic_conversation(query, conversation_chain):
     with open("cvparser_prompt_template.txt", "r") as f:
         system_prompt = f.read()
     # If the conversation_chain supports a system prompt, set it here
-    # Otherwise, prepend it to the user query
     if hasattr(conversation_chain, 'system_prompt'):
         conversation_chain.system_prompt = system_prompt
         return conversation_chain.predict(input=query)
     else:
-        return conversation_chain.predict(input=system_prompt + "\nUSER: " + query)
+        # Use the system prompt as context, but do NOT prepend it to the user query for memory
+        # Instead, call the LLM directly with the system prompt and user query as context
+        # (Assuming conversation_chain.predict() just sends the input to the LLM)
+        # You may need to adjust this depending on your LLM wrapper
+        response = conversation_chain.llm.invoke(system_prompt + "\nUSER: " + query).content
+        print(response)
+        # Optionally, manually add to memory here if needed
+        return response
 
 #flow 
 def main():
@@ -85,7 +101,7 @@ def main():
     neo4j_password = os.getenv("NEO4J_PASSWORD")
     if not all([neo4j_uri, neo4j_user, neo4j_password]):
         raise ValueError("NEO4J_URI, NEO4J_USER, and NEO4J_PASSWORD environment variables must be set.")
-    driver = GraphDatabase.driver(str(neo4j_uri), auth=(str(neo4j_user), str(neo4j_password)))
+    driver = GraphDatabase.driver(neo4j_uri, auth=(neo4j_user, neo4j_password))
     
     # Initialize conversation chains
     custom_prompt = PromptTemplate(
@@ -100,9 +116,6 @@ def main():
         CV parser:"""
     )
     
-    # Initialize followup chain for followup queries
-
-
     # Initialize conversation chain for conversation between user and cv parser
     conversation_chain = ConversationChain(
         llm=llm,
@@ -142,6 +155,15 @@ def main():
         user_query = st.session_state["chat_input"]
         if not user_query:
             return
+
+        # Ensure session_id is set
+        if "session_id" not in st.session_state:
+            st.session_state["session_id"] = str(uuid.uuid4())
+        session_id = st.session_state["session_id"]
+
+        # Always load the latest summary for this session
+        load_summary_from_mongodb(session_id)
+
         st.session_state["chat_history"].append(("user", user_query))
         schema = get_knowledge_graph_schema()
         with st.spinner("Analyzing query..."):
@@ -156,8 +178,8 @@ def main():
             if result:
                 display_text = display_results_with_llm(result, llm)
                 st.session_state["chat_history"].append(("ai", display_text))
-                add_to_memory(user_query, result)
-                print("\n[DEBUG] Follow-up query result:\n", result)
+                add_to_memory(user_query, result, session_id=session_id)
+                print("\n[DEBUG] Follow-up query result from handle folowup:\n", result)
             else:
                 response = "I couldn't find any information for your follow-up query."
                 st.session_state["chat_history"].append(("ai", response))
@@ -190,7 +212,7 @@ def main():
             if result:
                 display_text = display_results_with_llm(result, llm)
                 st.session_state["chat_history"].append(("ai", display_text))
-                add_to_memory(user_query, result)
+                add_to_memory(user_query, result, session_id=session_id)
             else:
                 response = "No matching candidates found."
                 st.session_state["chat_history"].append(("ai", response))
@@ -216,6 +238,8 @@ def main():
     if st.sidebar.button("Clear Memory"):
         memory.clear()
         st.success("Conversation memory cleared.")
+
+
 
 if __name__ == "__main__":
     main()
